@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, read_env
+from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, plan_upgrade, read_env
 
 
 class LifeguardTest(unittest.TestCase):
@@ -153,6 +153,34 @@ class LifeguardTest(unittest.TestCase):
             ), patch("sys.stdout", new=output):
                 self.assertEqual(0, main())
             self.assertNotIn("No database backup found", output.getvalue())
+
+    def test_upgrade_plan_accepts_only_newer_same_major_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".env").write_text("UPLOAD_LOCATION=./library\nIMMICH_VERSION=v3.0.3\n", encoding="utf-8")
+            (root / "library" / "backups").mkdir(parents=True)
+            (root / "library" / "backups" / "dump.sql.gz").touch()
+
+            self.assertFalse([item for item in plan_upgrade(root, "v3.0.4") if item.level == "FAIL"])
+            for target in ("v3.0.3", "v3.0.2", "v4.0.0", "v3"):
+                with self.subTest(target=target):
+                    self.assertTrue([item for item in plan_upgrade(root, target) if item.level == "FAIL"])
+
+    def test_upgrade_plan_requires_backup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nIMMICH_VERSION=v3.0.3\nDB_PASSWORD=changed123\n",
+                encoding="utf-8",
+            )
+            (root / "library" / "backups").mkdir(parents=True)
+            (root / "postgres").mkdir()
+
+            output = io.StringIO()
+            with patch.object(sys, "argv", ["lifeguard.py", str(root), "--plan-upgrade", "v3.0.4"]), patch("sys.stdout", new=output):
+                self.assertEqual(2, main())
+            self.assertIn("FAIL  A database backup in the verified backup directory is required", output.getvalue())
 
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:
