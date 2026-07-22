@@ -6,7 +6,7 @@
 #     -v /var/run/docker.sock:/var/run/docker.sock \
 #     -v /srv/immich-app:/srv/immich-app \
 #     -e LIFEGUARD_LICENSE_KEY=... \
-#     ghcr.io/OWNER/selfhost-lifeguard \
+#     ghcr.io/irina958-design/selfhost-lifeguard \
 #     --directory /srv/immich-app --command preflight
 FROM docker:27-cli
 
