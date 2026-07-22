@@ -6,7 +6,7 @@ Safety checks, database backups, and isolated restore verification for an offici
 
 ## Pilot status
 
-Version `0.1.3` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, and three simulated user scenarios plus the official Immich v3.0.3 database Compose configuration pass backup and isolated restore checks. Verification against three real Immich installations is still required before any production upgrade or rollback feature is added.
+Version `0.2.0` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, three simulated user scenarios plus the official Immich v3.0.3 database Compose configuration pass backup and isolated restore checks, and upgrade prerequisites can be planned read-only. Production upgrade remains gated on isolated rehearsal and real-installation pilots.
 
 Track the pilot gate in [issue #5](https://github.com/irina958-design/selfhost-lifeguard/issues/5).
 
@@ -24,11 +24,11 @@ No Python packages are required.
 Download the standalone script and confirm its version:
 
 ```console
-curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.1.3/lifeguard.py
+curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.2.0/lifeguard.py
 python lifeguard.py --version
 ```
 
-The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.1.3) publishes the file's SHA-256 checksum. No installation step is required.
+The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.2.0) publishes the file's SHA-256 checksum. No installation step is required.
 
 ## Preflight
 

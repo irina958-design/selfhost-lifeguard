@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 
 
 @dataclass(frozen=True)
