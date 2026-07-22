@@ -19,6 +19,17 @@ Track the pilot gate in [issue #5](https://github.com/irina958-design/selfhost-l
 
 No Python packages are required.
 
+## Get the pilot release
+
+Download the standalone script and confirm its version:
+
+```console
+curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.1.2/lifeguard.py
+python lifeguard.py --version
+```
+
+The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.1.2) publishes the file's SHA-256 checksum. No installation step is required.
+
 ## Preflight
 
 The default command reads the installation and reports:
