@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import os
 import re
 import secrets
@@ -24,6 +25,10 @@ class Finding:
 
 
 class BackupError(RuntimeError):
+    pass
+
+
+class RestoreError(RuntimeError):
     pass
 
 
@@ -152,6 +157,142 @@ def create_database_backup(root: Path) -> Path:
         temporary_path.unlink(missing_ok=True)
 
 
+def run_checked(command: list[str], cwd: Path, timeout: int) -> str:
+    try:
+        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError as error:
+        raise RestoreError("Docker was not found.") from error
+    except subprocess.TimeoutExpired as error:
+        raise RestoreError(f"Timed out while running {command[0]} {command[1]}.") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip()[:1000]
+        raise RestoreError(detail or f"Command failed with exit code {result.returncode}.")
+    return result.stdout
+
+
+def database_image(root: Path, compose: Path) -> str:
+    output = run_checked(
+        ["docker", "compose", "--project-directory", str(root), "-f", str(compose), "config", "--format", "json"],
+        root,
+        60,
+    )
+    try:
+        image = json.loads(output)["services"]["database"]["image"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise RestoreError("The Compose configuration has no database service image.") from error
+    if not isinstance(image, str) or not image:
+        raise RestoreError("The Compose database image is empty.")
+    return image
+
+
+def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
+    compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
+    env_file = root / ".env"
+    if compose is None or not env_file.is_file():
+        raise RestoreError("A Docker Compose file and .env are required before verifying a restore.")
+    backup = backup.resolve()
+    if not backup.is_file():
+        raise RestoreError(f"Backup file does not exist: {backup}")
+
+    env = read_env(env_file)
+    user = env.get("DB_USERNAME", "postgres")
+    database = env.get("DB_DATABASE_NAME", "immich")
+    image = database_image(root, compose)
+    project = f"lifeguard-restore-{secrets.token_hex(4)}"
+    cleanup_error: RestoreError | None = None
+
+    with tempfile.TemporaryDirectory(prefix="lifeguard-restore-") as temporary:
+        temporary_path = Path(temporary)
+        restore_compose = temporary_path / "compose.json"
+        restore_compose.write_text(
+            json.dumps(
+                {
+                    "services": {
+                        "database": {
+                            "image": image,
+                            "environment": {
+                                "POSTGRES_USER": user,
+                                "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
+                                "POSTGRES_DB": database,
+                            },
+                            "healthcheck": {
+                                "test": ["CMD", "pg_isready", "--username", user, "--dbname", database],
+                                "interval": "1s",
+                                "timeout": "5s",
+                                "retries": 60,
+                            },
+                            "volumes": ["restore-data:/var/lib/postgresql/data"],
+                        }
+                    },
+                    "volumes": {"restore-data": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        compose_command = ["docker", "compose", "-p", project, "-f", str(restore_compose)]
+
+        try:
+            run_checked([*compose_command, "up", "-d", "--wait", "database"], temporary_path, 300)
+            with tempfile.TemporaryFile() as stderr:
+                process = subprocess.Popen(
+                    [
+                        *compose_command,
+                        "exec",
+                        "-T",
+                        "database",
+                        "psql",
+                        f"--dbname={database}",
+                        f"--username={user}",
+                        "--single-transaction",
+                        "--set",
+                        "ON_ERROR_STOP=on",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr,
+                    cwd=temporary_path,
+                )
+                assert process.stdin is not None
+                try:
+                    with gzip.open(backup, "rt", encoding="utf-8") as sql:
+                        for line in sql:
+                            line = line.replace(
+                                "SELECT pg_catalog.set_config('search_path', '', false);",
+                                "SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);",
+                            )
+                            process.stdin.write(line.encode("utf-8"))
+                except (BrokenPipeError, OSError, UnicodeError) as error:
+                    process.stdin.close()
+                    process.wait()
+                    raise RestoreError("The compressed SQL backup could not be streamed into PostgreSQL.") from error
+                process.stdin.close()
+                exit_code = process.wait()
+                if exit_code != 0:
+                    stderr.seek(0)
+                    detail = stderr.read(1000).decode("utf-8", errors="replace").strip()
+                    raise RestoreError(detail or f"Restore failed with exit code {exit_code}.")
+
+            run_checked(
+                [*compose_command, "exec", "-T", "database", "psql", f"--dbname={database}", f"--username={user}", "-Atc", "SELECT 1"],
+                temporary_path,
+                60,
+            )
+        finally:
+            cleanup = subprocess.run(
+                [*compose_command, "down", "-v", "--remove-orphans"],
+                cwd=temporary_path,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if cleanup.returncode != 0:
+                cleanup_error = RestoreError(f"Disposable restore cleanup failed for project {project}: {cleanup.stderr.strip()[:500]}")
+
+    if cleanup_error:
+        raise cleanup_error
+    return project, image
+
+
 def inspect(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
@@ -213,7 +354,9 @@ def inspect(root: Path) -> list[Finding]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, help="Directory containing Immich docker-compose.yml and .env")
-    parser.add_argument("--backup", action="store_true", help="Create a new compressed PostgreSQL backup after preflight checks")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--backup", action="store_true", help="Create a new compressed PostgreSQL backup after preflight checks")
+    actions.add_argument("--verify-restore", type=Path, metavar="BACKUP", help="Restore a backup into an isolated disposable database")
     args = parser.parse_args()
 
     root = args.directory.resolve()
@@ -230,6 +373,13 @@ def main() -> int:
             print(f"FAIL  {error}")
             return 2
         print(f"PASS  Database backup created: {backup}")
+    if args.verify_restore:
+        try:
+            project, image = verify_database_restore(root, args.verify_restore)
+        except (RestoreError, OSError, subprocess.SubprocessError) as error:
+            print(f"FAIL  {error}")
+            return 2
+        print(f"PASS  Restore verified with {image} in disposable project {project}; resources removed.")
     if any(item.level == "WARN" for item in findings):
         return 1
     return 0

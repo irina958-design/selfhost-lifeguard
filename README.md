@@ -28,9 +28,17 @@ python lifeguard.py /path/to/immich-app --backup
 
 This is the first write operation in Lifeguard. It runs `pg_dump` inside `immich_postgres`, never puts the database password on the command line, refuses unsafe publication, and removes failed temporary output.
 
+To verify a backup without touching the production installation:
+
+```console
+python lifeguard.py /path/to/immich-app --verify-restore /path/to/backup.sql.gz
+```
+
+Lifeguard reads the database image from the installation's normalized Compose configuration, creates a randomly named Compose project and volume, restores the SQL in one transaction, checks PostgreSQL, and removes only those disposable resources.
+
 With Immich's documented defaults, Lifeguard intentionally warns about the moving `v3` image tag, the example database password, and the absence of a visible database backup. These warnings do not modify or stop the installation.
 
 ## Next
 
-1. Restore into an isolated disposable environment.
+1. Run restore verification against three real Immich installations.
 2. Add upgrade and automatic rollback only after three successful pilot restores.
