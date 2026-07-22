@@ -1,12 +1,13 @@
 import gzip
 import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, read_env
+from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, read_env
 
 
 class LifeguardTest(unittest.TestCase):
@@ -128,6 +129,30 @@ class LifeguardTest(unittest.TestCase):
                     create_database_backup(root)
 
             self.assertFalse(list(backup_directory.iterdir()))
+
+    def test_successful_first_backup_clears_missing_backup_exit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nIMMICH_VERSION=v3.0.0\nDB_PASSWORD=changed123\n",
+                encoding="utf-8",
+            )
+            backup_directory = root / "library" / "backups"
+            backup_directory.mkdir(parents=True)
+            (root / "postgres").mkdir()
+
+            def create_backup(_root):
+                backup = backup_directory / "first.sql.gz"
+                backup.touch()
+                return backup
+
+            output = io.StringIO()
+            with patch.object(sys, "argv", ["lifeguard.py", str(root), "--backup"]), patch(
+                "lifeguard.create_database_backup", side_effect=create_backup
+            ), patch("sys.stdout", new=output):
+                self.assertEqual(0, main())
+            self.assertNotIn("No database backup found", output.getvalue())
 
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:

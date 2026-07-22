@@ -393,6 +393,8 @@ def main() -> int:
 
     root = args.directory.resolve()
     findings = inspect(root)
+    if args.backup:
+        findings = [item for item in findings if item.code != "backup.missing"]
     for finding in findings:
         print(f"{finding.level:4}  {finding.message}")
 
