@@ -86,12 +86,17 @@ def resolve_backup_path(root: Path, compose: Path | None, env: dict[str, str]) -
     return backup_path, None
 
 
-def build_backup_command(env: dict[str, str]) -> list[str]:
+def build_backup_command(root: Path, compose: Path, env: dict[str, str]) -> list[str]:
     return [
         "docker",
+        "compose",
+        "--project-directory",
+        str(root),
+        "-f",
+        str(compose),
         "exec",
-        "-i",
-        "immich_postgres",
+        "-T",
+        "database",
         "pg_dump",
         "--clean",
         "--if-exists",
@@ -121,7 +126,7 @@ def create_database_backup(root: Path) -> Path:
     try:
         with tempfile.TemporaryFile() as stderr:
             try:
-                process = subprocess.Popen(build_backup_command(env), stdout=subprocess.PIPE, stderr=stderr)
+                process = subprocess.Popen(build_backup_command(root, compose, env), stdout=subprocess.PIPE, stderr=stderr)
             except FileNotFoundError as error:
                 raise BackupError("Docker was not found.") from error
             except (OSError, ValueError) as error:

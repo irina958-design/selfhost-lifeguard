@@ -97,7 +97,7 @@ class LifeguardTest(unittest.TestCase):
             (root / "library" / "backups").mkdir(parents=True)
 
             def fake_popen(command, stdout, stderr):
-                self.assertEqual(build_backup_command(read_env(root / ".env")), command)
+                self.assertEqual(build_backup_command(root, root / "docker-compose.yml", read_env(root / ".env")), command)
                 self.assertNotIn("not-on-command-line", " ".join(command))
                 return SimpleNamespace(stdout=io.BytesIO(b"CREATE TABLE example ();\n"), wait=lambda: 0)
 

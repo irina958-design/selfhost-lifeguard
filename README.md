@@ -45,7 +45,7 @@ To explicitly create a new compressed PostgreSQL backup in the verified backup d
 python lifeguard.py /path/to/immich-app --backup
 ```
 
-This is the first write operation in Lifeguard. It runs `pg_dump` inside `immich_postgres`, never puts the database password on the command line, refuses unsafe publication, and removes failed temporary output.
+This is the first write operation in Lifeguard. It runs `pg_dump` through the `database` service in the selected installation's Compose project, never puts the database password on the command line, refuses unsafe publication, and removes failed temporary output.
 
 ## Verify restore
 
