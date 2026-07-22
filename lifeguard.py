@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -177,24 +177,97 @@ def run_checked(command: list[str], cwd: Path, timeout: int) -> str:
     except subprocess.TimeoutExpired as error:
         raise RestoreError(f"Timed out while running {command[0]} {command[1]}.") from error
     if result.returncode != 0:
-        detail = result.stderr.strip()[:1000]
+        detail = result.stderr.strip()[-1000:]
         raise RestoreError(detail or f"Command failed with exit code {result.returncode}.")
     return result.stdout
 
 
-def database_image(root: Path, compose: Path) -> str:
+def service_image(root: Path, compose: Path, service: str) -> str:
     output = run_checked(
         ["docker", "compose", "--project-directory", str(root), "-f", str(compose), "config", "--format", "json"],
         root,
         60,
     )
     try:
-        image = json.loads(output)["services"]["database"]["image"]
+        image = json.loads(output)["services"][service]["image"]
     except (KeyError, TypeError, json.JSONDecodeError) as error:
-        raise RestoreError("The Compose configuration has no database service image.") from error
+        raise RestoreError(f"The Compose configuration has no {service} service image.") from error
     if not isinstance(image, str) or not image:
-        raise RestoreError("The Compose database image is empty.")
+        raise RestoreError(f"The Compose {service} image is empty.")
     return image
+
+
+def database_image(root: Path, compose: Path) -> str:
+    return service_image(root, compose, "database")
+
+
+def open_backup(backup: Path):
+    if backup.suffix.lower() == ".gz":
+        return gzip.open(backup, "rt", encoding="utf-8")
+    return backup.open("rt", encoding="utf-8")
+
+
+def restore_backup(compose_command: list[str], backup: Path, database: str, user: str, cwd: Path) -> None:
+    with tempfile.TemporaryFile() as stderr:
+        process = subprocess.Popen(
+            [
+                *compose_command,
+                "exec",
+                "-T",
+                "database",
+                "psql",
+                f"--dbname={database}",
+                f"--username={user}",
+                "--single-transaction",
+                "--set",
+                "ON_ERROR_STOP=on",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr,
+            cwd=cwd,
+        )
+        assert process.stdin is not None
+        try:
+            with open_backup(backup) as sql:
+                for line in sql:
+                    line = line.replace(
+                        "SELECT pg_catalog.set_config('search_path', '', false);",
+                        "SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);",
+                    )
+                    process.stdin.write(line.encode("utf-8"))
+        except (BrokenPipeError, OSError, UnicodeError) as error:
+            process.stdin.close()
+            process.wait()
+            raise RestoreError("The SQL backup could not be streamed into PostgreSQL.") from error
+        process.stdin.close()
+        exit_code = process.wait()
+        if exit_code != 0:
+            stderr.seek(0)
+            detail = stderr.read(1000).decode("utf-8", errors="replace").strip()
+            raise RestoreError(detail or f"Restore failed with exit code {exit_code}.")
+
+
+def public_table_count(compose_command: list[str], database: str, user: str, cwd: Path) -> int:
+    output = run_checked(
+        [
+            *compose_command,
+            "exec",
+            "-T",
+            "database",
+            "psql",
+            f"--dbname={database}",
+            f"--username={user}",
+            "-Atc",
+            "SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public'",
+        ],
+        cwd,
+        60,
+    )
+    try:
+        return int(output.strip())
+    except ValueError as error:
+        raise RestoreError("The restored database returned an invalid table count.") from error
 
 
 def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
@@ -246,64 +319,8 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
 
         try:
             run_checked([*compose_command, "up", "-d", "--wait", "database"], temporary_path, 300)
-            with tempfile.TemporaryFile() as stderr:
-                process = subprocess.Popen(
-                    [
-                        *compose_command,
-                        "exec",
-                        "-T",
-                        "database",
-                        "psql",
-                        f"--dbname={database}",
-                        f"--username={user}",
-                        "--single-transaction",
-                        "--set",
-                        "ON_ERROR_STOP=on",
-                    ],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=stderr,
-                    cwd=temporary_path,
-                )
-                assert process.stdin is not None
-                try:
-                    with gzip.open(backup, "rt", encoding="utf-8") as sql:
-                        for line in sql:
-                            line = line.replace(
-                                "SELECT pg_catalog.set_config('search_path', '', false);",
-                                "SELECT pg_catalog.set_config('search_path', 'public, pg_catalog', true);",
-                            )
-                            process.stdin.write(line.encode("utf-8"))
-                except (BrokenPipeError, OSError, UnicodeError) as error:
-                    process.stdin.close()
-                    process.wait()
-                    raise RestoreError("The compressed SQL backup could not be streamed into PostgreSQL.") from error
-                process.stdin.close()
-                exit_code = process.wait()
-                if exit_code != 0:
-                    stderr.seek(0)
-                    detail = stderr.read(1000).decode("utf-8", errors="replace").strip()
-                    raise RestoreError(detail or f"Restore failed with exit code {exit_code}.")
-
-            table_count = run_checked(
-                [
-                    *compose_command,
-                    "exec",
-                    "-T",
-                    "database",
-                    "psql",
-                    f"--dbname={database}",
-                    f"--username={user}",
-                    "-Atc",
-                    "SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public'",
-                ],
-                temporary_path,
-                60,
-            )
-            try:
-                restored_tables = int(table_count.strip())
-            except ValueError as error:
-                raise RestoreError("The restored database returned an invalid table count.") from error
+            restore_backup(compose_command, backup, database, user, temporary_path)
+            restored_tables = public_table_count(compose_command, database, user, temporary_path)
             if restored_tables < 1:
                 raise RestoreError("The restored database contains no user tables.")
         except Exception as error:
@@ -329,6 +346,12 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
     return project, image
 
 
+def upgrade_backup(root: Path, compose: Path | None, env: dict[str, str]) -> Path | None:
+    backup_path, _ = resolve_backup_path(root, compose, env)
+    backups = list(backup_path.glob("*.sql*")) if backup_path and backup_path.is_dir() else []
+    return max(backups, key=lambda path: path.stat().st_mtime) if backups else None
+
+
 def plan_upgrade(root: Path, target: str) -> list[Finding]:
     env_file = root / ".env"
     if not env_file.is_file():
@@ -348,11 +371,9 @@ def plan_upgrade(root: Path, target: str) -> list[Finding]:
         return [Finding("FAIL", "upgrade.major", "Major-version upgrades require manual review of Immich's breaking changes.")]
 
     compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
-    backup_path, _ = resolve_backup_path(root, compose, env)
-    backups = list(backup_path.glob("*.sql*")) if backup_path and backup_path.is_dir() else []
-    if not backups:
+    newest = upgrade_backup(root, compose, env)
+    if newest is None:
         return [Finding("FAIL", "upgrade.backup", "A database backup in the verified backup directory is required before planning an upgrade.")]
-    newest = max(backups, key=lambda path: path.stat().st_mtime)
 
     return [
         Finding("PASS", "upgrade.target", f"Same-major upgrade direction validated: {current} -> {target}."),
@@ -360,6 +381,162 @@ def plan_upgrade(root: Path, target: str) -> list[Finding]:
         Finding("INFO", "upgrade.read-only", "Plan only: no images were pulled and no files or containers were changed."),
         Finding("INFO", "upgrade.rollback", "Immich does not support downgrades; verify a database backup before following the official upgrade instructions."),
     ]
+
+
+def rehearse_upgrade(root: Path, target: str) -> tuple[str, str, str]:
+    failures = [item for item in plan_upgrade(root, target) if item.level == "FAIL"]
+    if failures:
+        raise RestoreError(failures[0].message)
+
+    compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
+    env_file = root / ".env"
+    if compose is None or not env_file.is_file():
+        raise RestoreError("A Docker Compose file and .env are required before rehearsing an upgrade.")
+    env = read_env(env_file)
+    backup = upgrade_backup(root, compose, env)
+    if backup is None:
+        raise RestoreError("A database backup is required before rehearsing an upgrade.")
+
+    target_version = exact_version(target)
+    assert target_version is not None
+    target_tag = "v" + ".".join(map(str, target_version))
+    server_image = f"ghcr.io/immich-app/immich-server:{target_tag}"
+    database = env.get("DB_DATABASE_NAME", "immich")
+    user = env.get("DB_USERNAME", "postgres")
+    password = secrets.token_urlsafe(24)
+    database_image_name = service_image(root, compose, "database")
+    redis_image_name = service_image(root, compose, "redis")
+    project = f"lifeguard-upgrade-{secrets.token_hex(4)}"
+    rehearsal_error: Exception | None = None
+    cleanup_error: RestoreError | None = None
+
+    with tempfile.TemporaryDirectory(prefix="lifeguard-upgrade-") as temporary:
+        temporary_path = Path(temporary)
+        rehearsal_compose = temporary_path / "compose.json"
+        rehearsal_compose.write_text(
+            json.dumps(
+                {
+                    "services": {
+                        "database": {
+                            "image": database_image_name,
+                            "environment": {
+                                "POSTGRES_USER": user,
+                                "POSTGRES_PASSWORD": password,
+                                "POSTGRES_DB": database,
+                                "POSTGRES_INITDB_ARGS": "--data-checksums",
+                            },
+                            "healthcheck": {
+                                "test": ["CMD", "psql", "--username", user, "--dbname", database, "-c", "SELECT 1"],
+                                "interval": "1s",
+                                "timeout": "5s",
+                                "retries": 120,
+                            },
+                            "volumes": ["rehearsal-db:/var/lib/postgresql/data"],
+                        },
+                        "redis": {
+                            "image": redis_image_name,
+                            "healthcheck": {
+                                "test": ["CMD", "redis-cli", "ping"],
+                                "interval": "1s",
+                                "timeout": "5s",
+                                "retries": 60,
+                            },
+                        },
+                        "immich-server": {
+                            "image": server_image,
+                            "environment": {
+                                "DB_HOSTNAME": "database",
+                                "DB_USERNAME": user,
+                                "DB_PASSWORD": password,
+                                "DB_DATABASE_NAME": database,
+                                "REDIS_HOSTNAME": "redis",
+                                "IMMICH_WORKERS_INCLUDE": "api",
+                            },
+                            "depends_on": {
+                                "database": {"condition": "service_healthy"},
+                                "redis": {"condition": "service_healthy"},
+                            },
+                            "healthcheck": {
+                                "test": ["CMD", "immich-healthcheck"],
+                                "interval": "2s",
+                                "timeout": "5s",
+                                "retries": 150,
+                                "start_period": "10s",
+                            },
+                            "volumes": ["rehearsal-upload:/data"],
+                        },
+                    },
+                    "volumes": {"rehearsal-db": {}, "rehearsal-upload": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        compose_command = ["docker", "compose", "-p", project, "-f", str(rehearsal_compose)]
+
+        try:
+            run_checked([*compose_command, "up", "-d", "--wait", "database", "redis"], temporary_path, 300)
+            restore_backup(compose_command, backup, database, user, temporary_path)
+            if public_table_count(compose_command, database, user, temporary_path) < 1:
+                raise RestoreError("The restored database contains no user tables.")
+            run_checked(
+                [
+                    *compose_command,
+                    "run",
+                    "--rm",
+                    "--no-deps",
+                    "--entrypoint",
+                    "/bin/sh",
+                    "immich-server",
+                    "-c",
+                    "for folder in upload library thumbs encoded-video profile backups; do mkdir -p /data/$folder; : > /data/$folder/.immich; done",
+                ],
+                temporary_path,
+                300,
+            )
+            run_checked([*compose_command, "up", "-d", "--wait", "immich-server"], temporary_path, 600)
+            running_version = run_checked(
+                [*compose_command, "exec", "-T", "immich-server", "immich-admin", "version"], temporary_path, 60
+            ).strip()
+            if running_version != target_tag:
+                raise RestoreError(f"The disposable server reported {running_version!r}, expected {target_tag}.")
+            schema_report = run_checked(
+                [*compose_command, "exec", "-T", "immich-server", "immich-admin", "schema-check"], temporary_path, 180
+            )
+            if "Migrations are up to date" not in schema_report or "No schema drift detected" not in schema_report:
+                raise RestoreError("The target Immich server reported migration or schema drift problems.")
+        except Exception as error:
+            try:
+                logs = subprocess.run(
+                    [*compose_command, "logs", "--no-color", "--tail", "80", "immich-server"],
+                    cwd=temporary_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                detail = logs.stdout.strip()[-3000:]
+            except (OSError, subprocess.SubprocessError):
+                detail = ""
+            rehearsal_error = RestoreError(f"{error}\nTarget server logs:\n{detail}" if detail else str(error))
+        finally:
+            try:
+                cleanup = subprocess.run(
+                    [*compose_command, "down", "-v", "--remove-orphans"],
+                    cwd=temporary_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if cleanup.returncode != 0:
+                    cleanup_error = RestoreError(f"Disposable upgrade cleanup failed for project {project}: {cleanup.stderr.strip()[:500]}")
+            except (OSError, subprocess.SubprocessError) as error:
+                cleanup_error = RestoreError(f"Disposable upgrade cleanup failed for project {project}: {error}")
+
+    if cleanup_error:
+        raise cleanup_error from rehearsal_error
+    if rehearsal_error:
+        safe_message = str(rehearsal_error).replace(password, "[redacted]")
+        raise RestoreError(safe_message) from rehearsal_error
+    return project, server_image, backup.name
 
 
 def inspect(root: Path) -> list[Finding]:
@@ -428,15 +605,22 @@ def main() -> int:
     actions.add_argument("--backup", action="store_true", help="Create a new compressed PostgreSQL backup after preflight checks")
     actions.add_argument("--verify-restore", type=Path, metavar="BACKUP", help="Restore a backup into an isolated disposable database")
     actions.add_argument("--plan-upgrade", metavar="VERSION", help="Validate a same-major upgrade plan without changing the installation")
+    actions.add_argument("--rehearse-upgrade", metavar="VERSION", help="Start a target release against a restored backup in disposable containers")
     args = parser.parse_args()
 
     root = args.directory.resolve()
     findings = inspect(root)
     if args.backup:
         findings = [item for item in findings if item.code != "backup.missing"]
-    if args.plan_upgrade:
+    if args.plan_upgrade or args.rehearse_upgrade:
         findings = [item for item in findings if item.code != "backup.missing"]
-        findings.extend(plan_upgrade(root, args.plan_upgrade))
+        upgrade_findings = plan_upgrade(root, args.plan_upgrade or args.rehearse_upgrade)
+        if args.rehearse_upgrade:
+            upgrade_findings = [item for item in upgrade_findings if item.code != "upgrade.read-only"]
+            upgrade_findings.append(
+                Finding("INFO", "upgrade.isolated", "Rehearsal pulls the target image and uses only randomly named disposable containers and volumes.")
+            )
+        findings.extend(upgrade_findings)
     for finding in findings:
         print(f"{finding.level:4}  {finding.message}")
 
@@ -456,6 +640,13 @@ def main() -> int:
             print(f"FAIL  {error}")
             return 2
         print(f"PASS  Restore verified with {image} in disposable project {project}; resources removed.")
+    if args.rehearse_upgrade:
+        try:
+            project, image, backup_name = rehearse_upgrade(root, args.rehearse_upgrade)
+        except (RestoreError, OSError, subprocess.SubprocessError) as error:
+            print(f"FAIL  {error}")
+            return 2
+        print(f"PASS  Upgrade rehearsal passed with {image} and {backup_name} in disposable project {project}; resources removed.")
     if any(item.level == "WARN" for item in findings):
         return 1
     return 0

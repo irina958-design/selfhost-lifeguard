@@ -1,5 +1,6 @@
 import gzip
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -7,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, plan_upgrade, read_env
+from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, plan_upgrade, read_env, rehearse_upgrade
 
 
 class LifeguardTest(unittest.TestCase):
@@ -181,6 +182,45 @@ class LifeguardTest(unittest.TestCase):
             with patch.object(sys, "argv", ["lifeguard.py", str(root), "--plan-upgrade", "v3.0.4"]), patch("sys.stdout", new=output):
                 self.assertEqual(2, main())
             self.assertIn("FAIL  A database backup in the verified backup directory is required", output.getvalue())
+
+    def test_upgrade_rehearsal_uses_only_disposable_storage_and_password(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./private-library\nDB_DATA_LOCATION=./private-database\nIMMICH_VERSION=v3.0.2\nDB_PASSWORD=production-secret\n",
+                encoding="utf-8",
+            )
+            (root / "private-library" / "backups").mkdir(parents=True)
+            (root / "private-library" / "backups" / "dump.sql.gz").touch()
+            captured = {}
+
+            def fake_run_checked(command, cwd, timeout):
+                compose_path = Path(command[command.index("-f") + 1]) if "-f" in command else None
+                if compose_path and compose_path.name == "compose.json":
+                    captured.update(json.loads(compose_path.read_text(encoding="utf-8")))
+                if command[-2:] == ["immich-admin", "version"]:
+                    return "v3.0.3\n"
+                if command[-2:] == ["immich-admin", "schema-check"]:
+                    return "Migrations are up to date\n\nNo schema drift detected\n"
+                if command[-1].startswith("SELECT COUNT"):
+                    return "42\n"
+                return ""
+
+            cleanup = SimpleNamespace(returncode=0, stderr="")
+            with patch("lifeguard.service_image", side_effect=["official-postgres", "official-valkey"]), patch(
+                "lifeguard.run_checked", side_effect=fake_run_checked
+            ), patch("lifeguard.restore_backup"), patch("lifeguard.subprocess.run", return_value=cleanup):
+                _, image, backup_name = rehearse_upgrade(root, "v3.0.3")
+
+            self.assertEqual("ghcr.io/immich-app/immich-server:v3.0.3", image)
+            self.assertEqual("dump.sql.gz", backup_name)
+            serialized = json.dumps(captured)
+            self.assertNotIn("production-secret", serialized)
+            self.assertNotIn("private-library", serialized)
+            self.assertNotIn("private-database", serialized)
+            self.assertNotIn("ports", captured["services"]["immich-server"])
+            self.assertEqual(["rehearsal-upload:/data"], captured["services"]["immich-server"]["volumes"])
 
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:
