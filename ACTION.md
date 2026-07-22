@@ -35,7 +35,7 @@ jobs:
   backup:
     runs-on: [self-hosted, immich]
     steps:
-      - uses: irina958-design/selfhost-lifeguard@v0.3.2
+      - uses: irina958-design/selfhost-lifeguard@v0.3.3
         with:
           directory: /srv/immich-app
           command: backup
@@ -55,7 +55,7 @@ jobs:
     runs-on: [self-hosted, immich]
     steps:
       - name: Create backup
-        uses: irina958-design/selfhost-lifeguard@v0.3.2
+        uses: irina958-design/selfhost-lifeguard@v0.3.3
         with:
           directory: /srv/immich-app
           command: backup
@@ -66,7 +66,7 @@ jobs:
         run: echo "path=$(ls -t /srv/immich-app/backups/*.sql.gz | head -1)" >> "$GITHUB_OUTPUT"
 
       - name: Verify restore (Pro)
-        uses: irina958-design/selfhost-lifeguard@v0.3.2
+        uses: irina958-design/selfhost-lifeguard@v0.3.3
         with:
           directory: /srv/immich-app
           command: verify-restore
@@ -78,7 +78,7 @@ jobs:
 
 ```yaml
       - name: Rehearse upgrade (Pro)
-        uses: irina958-design/selfhost-lifeguard@v0.3.2
+        uses: irina958-design/selfhost-lifeguard@v0.3.3
         with:
           directory: /srv/immich-app
           command: rehearse-upgrade
