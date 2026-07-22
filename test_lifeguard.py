@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, plan_upgrade, read_env, rehearse_upgrade
+from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, main, plan_upgrade, read_env, rehearse_upgrade, verify_database_restore
 
 
 class LifeguardTest(unittest.TestCase):
@@ -103,7 +103,15 @@ class LifeguardTest(unittest.TestCase):
                 self.assertNotIn("not-on-command-line", " ".join(command))
                 return SimpleNamespace(stdout=io.BytesIO(b"CREATE TABLE example ();\n"), wait=lambda: 0)
 
-            with patch("lifeguard.subprocess.Popen", side_effect=fake_popen):
+            real_gzip_open = gzip.open
+
+            def private_gzip_open(path, mode):
+                self.assertEqual(root / "library" / "backups", Path(path).parent.parent)
+                return real_gzip_open(path, mode)
+
+            with patch("lifeguard.subprocess.Popen", side_effect=fake_popen), patch(
+                "lifeguard.gzip.open", side_effect=private_gzip_open
+            ):
                 backup = create_database_backup(root)
 
             self.assertTrue(backup.exists())
@@ -221,6 +229,29 @@ class LifeguardTest(unittest.TestCase):
             self.assertNotIn("private-database", serialized)
             self.assertNotIn("ports", captured["services"]["immich-server"])
             self.assertEqual(["rehearsal-upload:/data"], captured["services"]["immich-server"]["volumes"])
+            self.assertTrue(captured["networks"]["default"]["internal"])
+
+    def test_restore_verification_uses_internal_network(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text("DB_USERNAME=postgres\nDB_DATABASE_NAME=immich\n", encoding="utf-8")
+            backup = root / "dump.sql"
+            backup.write_text("CREATE TABLE example ();\n", encoding="utf-8")
+            captured = {}
+
+            def fake_run_checked(command, cwd, timeout):
+                compose_path = Path(command[command.index("-f") + 1])
+                captured.update(json.loads(compose_path.read_text(encoding="utf-8")))
+                return "1\n" if command[-1].startswith("SELECT COUNT") else ""
+
+            cleanup = SimpleNamespace(returncode=0, stderr="")
+            with patch("lifeguard.database_image", return_value="official-postgres"), patch(
+                "lifeguard.run_checked", side_effect=fake_run_checked
+            ), patch("lifeguard.restore_backup"), patch("lifeguard.subprocess.run", return_value=cleanup):
+                verify_database_restore(root, backup)
+
+            self.assertTrue(captured["networks"]["default"]["internal"])
 
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:
