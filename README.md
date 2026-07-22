@@ -104,13 +104,13 @@ With Immich's documented defaults, Lifeguard intentionally warns about the movin
 Run the fast tests:
 
 ```console
-python -m unittest -v test_lifeguard
+python -m unittest discover -s tests -p "test_lifeguard.py" -v
 ```
 
 Run the simulated pilot matrix:
 
 ```console
-LIFEGUARD_DOCKER_TEST=1 python -m unittest -v test_restore_docker
+LIFEGUARD_DOCKER_TEST=1 python -m unittest discover -s tests -p "test_restore_docker.py" -v
 ```
 
 It covers an invalid dump, a custom backup path with spaces, and two parallel installations with different data. Every scenario creates a backup, performs an isolated restore, and checks resource cleanup.
@@ -118,7 +118,7 @@ It covers an invalid dump, a custom backup path with spaces, and two parallel in
 Run the real Immich patch-upgrade rehearsal:
 
 ```console
-LIFEGUARD_UPGRADE_TEST=1 python -m unittest -v test_upgrade_docker
+LIFEGUARD_UPGRADE_TEST=1 python -m unittest discover -s tests -p "test_upgrade_docker.py" -v
 ```
 
 This runs real v2.7.4 → v2.7.5 and v3.0.2 → v3.0.3 rehearsals with the official database and Redis images, validates migrations and schema drift, and checks cleanup.

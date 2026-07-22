@@ -9,7 +9,7 @@ from pathlib import Path
 from lifeguard import RestoreError, create_database_backup, verify_database_restore
 
 
-SCRIPT = Path(__file__).with_name("lifeguard.py").resolve()
+SCRIPT = Path(__file__).resolve().parents[1] / "lifeguard.py"
 
 
 def create_install(root: Path, custom_backup: bool = False) -> tuple[list[str], Path]:
