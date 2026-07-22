@@ -121,7 +121,7 @@ Run the real Immich patch-upgrade rehearsal:
 LIFEGUARD_UPGRADE_TEST=1 python -m unittest -v test_upgrade_docker
 ```
 
-This starts v3.0.2 with the official database and Redis images, creates a real Immich schema, backs it up, rehearses v3.0.3, validates migrations and schema drift, and checks cleanup.
+This runs real v2.7.4 → v2.7.5 and v3.0.2 → v3.0.3 rehearsals with the official database and Redis images, validates migrations and schema drift, and checks cleanup.
 
 ## Roadmap
 
