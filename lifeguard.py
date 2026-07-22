@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only preflight checks for a Docker Compose Immich installation."""
+"""Safety checks and recovery verification for a Docker Compose Immich installation."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+__version__ = "0.1.0"
 
 
 @dataclass(frozen=True)
@@ -199,6 +201,7 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
     database = env.get("DB_DATABASE_NAME", "immich")
     image = database_image(root, compose)
     project = f"lifeguard-restore-{secrets.token_hex(4)}"
+    restore_error: Exception | None = None
     cleanup_error: RestoreError | None = None
 
     with tempfile.TemporaryDirectory(prefix="lifeguard-restore-") as temporary:
@@ -277,19 +280,26 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
                 temporary_path,
                 60,
             )
+        except Exception as error:
+            restore_error = error
         finally:
-            cleanup = subprocess.run(
-                [*compose_command, "down", "-v", "--remove-orphans"],
-                cwd=temporary_path,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if cleanup.returncode != 0:
-                cleanup_error = RestoreError(f"Disposable restore cleanup failed for project {project}: {cleanup.stderr.strip()[:500]}")
+            try:
+                cleanup = subprocess.run(
+                    [*compose_command, "down", "-v", "--remove-orphans"],
+                    cwd=temporary_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if cleanup.returncode != 0:
+                    cleanup_error = RestoreError(f"Disposable restore cleanup failed for project {project}: {cleanup.stderr.strip()[:500]}")
+            except (OSError, subprocess.SubprocessError) as error:
+                cleanup_error = RestoreError(f"Disposable restore cleanup failed for project {project}: {error}")
 
     if cleanup_error:
-        raise cleanup_error
+        raise cleanup_error from restore_error
+    if restore_error:
+        raise restore_error
     return project, image
 
 
@@ -353,6 +363,7 @@ def inspect(root: Path) -> list[Finding]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("directory", type=Path, help="Directory containing Immich docker-compose.yml and .env")
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--backup", action="store_true", help="Create a new compressed PostgreSQL backup after preflight checks")

@@ -1,10 +1,27 @@
 # Selfhost Lifeguard
 
-Read-only safety checks for self-hosted applications. The first supported target is an official Docker Compose installation of [Immich](https://docs.immich.app/install/docker-compose/).
+[![CI](https://github.com/irina958-design/selfhost-lifeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/irina958-design/selfhost-lifeguard/actions/workflows/ci.yml)
 
-## Current version
+Safety checks, database backups, and isolated restore verification for an official Docker Compose installation of [Immich](https://docs.immich.app/install/docker-compose/).
 
-The first check reads an Immich directory and reports:
+## Pilot status
+
+Version `0.1.0` is ready for controlled pilots. The disposable PostgreSQL restore pipeline passes an automated Docker integration test. Verification against three real Immich installations is still required before any production upgrade or rollback feature is added.
+
+Track the pilot gate in [issue #5](https://github.com/irina958-design/selfhost-lifeguard/issues/5).
+
+## Requirements
+
+- Python 3.10 or newer;
+- Docker with the `docker compose` plugin;
+- the official Immich Docker Compose layout;
+- access to the Immich installation directory.
+
+No Python packages are required.
+
+## Preflight
+
+The default command reads the installation and reports:
 
 - missing `docker-compose.yml` or `.env` files;
 - missing or unsafe core settings;
@@ -20,6 +37,8 @@ python lifeguard.py /path/to/immich-app
 
 Exit codes: `0` ready, `1` warnings found, `2` blocking failures found.
 
+## Create a database backup
+
 To explicitly create a new compressed PostgreSQL backup in the verified backup directory:
 
 ```console
@@ -27,6 +46,8 @@ python lifeguard.py /path/to/immich-app --backup
 ```
 
 This is the first write operation in Lifeguard. It runs `pg_dump` inside `immich_postgres`, never puts the database password on the command line, refuses unsafe publication, and removes failed temporary output.
+
+## Verify restore
 
 To verify a backup without touching the production installation:
 
@@ -36,9 +57,34 @@ python lifeguard.py /path/to/immich-app --verify-restore /path/to/backup.sql.gz
 
 Lifeguard reads the database image from the installation's normalized Compose configuration, creates a randomly named Compose project and volume, restores the SQL in one transaction, checks PostgreSQL, and removes only those disposable resources.
 
+## Safety boundary
+
+- No production container, volume, or database is modified during restore verification.
+- Cleanup is scoped to a randomly generated Compose project.
+- Automatic upgrades and production rollback are intentionally unavailable during the pilot.
+- Back up the media library separately; this version verifies PostgreSQL backups, not a full media restore.
+
 With Immich's documented defaults, Lifeguard intentionally warns about the moving `v3` image tag, the example database password, and the absence of a visible database backup. These warnings do not modify or stop the installation.
 
-## Next
+## Development
+
+Run the fast tests:
+
+```console
+python -m unittest -v test_lifeguard
+```
+
+Run the disposable Docker restore test:
+
+```console
+LIFEGUARD_DOCKER_TEST=1 python -m unittest -v test_restore_docker
+```
+
+## Roadmap
 
 1. Run restore verification against three real Immich installations.
 2. Add upgrade and automatic rollback only after three successful pilot restores.
+
+## License
+
+[MIT](LICENSE)
