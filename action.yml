@@ -1,0 +1,45 @@
+name: "Selfhost Lifeguard"
+description: "Preflight, backup, isolated restore verification and upgrade rehearsal for a self-hosted Docker Compose Immich installation."
+author: "selfhost-lifeguard"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  directory:
+    description: "Installation directory containing docker-compose.yml and .env."
+    required: true
+  command:
+    description: "preflight (default, free) | backup (free) | verify-restore (Pro) | rehearse-upgrade (Pro)."
+    required: false
+    default: "preflight"
+  backup:
+    description: "Path to a .sql.gz backup. Required for verify-restore."
+    required: false
+    default: ""
+  version:
+    description: "Target version X.Y.Z. Required for rehearse-upgrade."
+    required: false
+    default: ""
+  license-key:
+    description: "Pro license key. Required for verify-restore and rehearse-upgrade."
+    required: false
+    default: ""
+
+# Composite, not a Docker action: this must run ON the host that owns the Immich
+# installation, so use a self-hosted runner that already has python3, docker and
+# the docker compose plugin. A Docker action cannot reach the host's compose
+# project or docker socket without extra mounts.
+runs:
+  using: "composite"
+  steps:
+    - name: Run Lifeguard
+      shell: bash
+      env:
+        LIFEGUARD_LICENSE_KEY: ${{ inputs.license-key }}
+      run: >
+        python3 "${{ github.action_path }}/gate.py"
+        --directory "${{ inputs.directory }}"
+        --command "${{ inputs.command }}"
+        --backup "${{ inputs.backup }}"
+        --version "${{ inputs.version }}"

@@ -101,12 +101,18 @@ Lifeguard reads the database and Redis images from the normalized installation C
 
 With Immich's documented defaults, Lifeguard intentionally warns about the moving `v3` image tag, the example database password, and the absence of a visible database backup. These warnings do not modify or stop the installation.
 
+## GitHub Action
+
+Run these checks on a schedule from CI. Preflight and backup are free; isolated
+restore verification and upgrade rehearsal are Pro. See [`ACTION.md`](ACTION.md)
+for workflow examples and licensing setup.
+
 ## Development
 
 Run the fast tests:
 
 ```console
-python -m unittest discover -s tests -p "test_lifeguard.py" -v
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 Run the simulated pilot matrix:
