@@ -6,7 +6,7 @@ Safety checks, database backups, and isolated restore verification for an offici
 
 ## Pilot status
 
-Version `0.1.1` is ready for controlled pilots. The disposable PostgreSQL restore pipeline rejects empty dumps and passes an automated Docker integration test. Verification against three real Immich installations is still required before any production upgrade or rollback feature is added.
+Version `0.1.2` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, and the disposable PostgreSQL restore pipeline rejects empty dumps and passes an automated Docker integration test. Verification against three real Immich installations is still required before any production upgrade or rollback feature is added.
 
 Track the pilot gate in [issue #5](https://github.com/irina958-design/selfhost-lifeguard/issues/5).
 
