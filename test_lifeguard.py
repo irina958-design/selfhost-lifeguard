@@ -27,6 +27,22 @@ class LifeguardTest(unittest.TestCase):
             (root / "docker-compose.yml").touch()
             self.assertIn("env.missing", {item.code for item in inspect(root) if item.level == "FAIL"})
 
+    def test_official_defaults_are_reported_not_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services:\n  immich-server: {}\n  database: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nIMMICH_VERSION=v3\nDB_PASSWORD=postgres\n",
+                encoding="utf-8",
+            )
+            (root / "library").mkdir()
+            (root / "postgres").mkdir()
+
+            findings = inspect(root)
+            codes = {item.code for item in findings}
+            self.assertFalse([item for item in findings if item.level == "FAIL"])
+            self.assertTrue({"version.unpinned", "db.default-password", "backup.missing"} <= codes)
+
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / ".env"
