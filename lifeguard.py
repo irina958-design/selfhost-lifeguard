@@ -125,10 +125,8 @@ def create_database_backup(root: Path) -> Path:
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     final_path = backup_path / f"immich-db-{stamp}-{secrets.token_hex(4)}.sql.gz"
-    with tempfile.NamedTemporaryFile(dir=backup_path, prefix=".lifeguard-", suffix=".tmp", delete=False) as temporary:
-        temporary_path = Path(temporary.name)
-
-    try:
+    with tempfile.TemporaryDirectory(dir=backup_path, prefix=".lifeguard-") as temporary:
+        temporary_path = Path(temporary) / "backup.tmp"
         with tempfile.TemporaryFile() as stderr:
             try:
                 process = subprocess.Popen(build_backup_command(root, compose, env), stdout=subprocess.PIPE, stderr=stderr)
@@ -163,10 +161,7 @@ def create_database_backup(root: Path) -> Path:
             raise BackupError("Refusing to overwrite an existing backup.") from error
         except OSError as error:
             raise BackupError("The backup filesystem cannot publish the file safely without overwrite risk.") from error
-        temporary_path.unlink()
         return final_path
-    finally:
-        temporary_path.unlink(missing_ok=True)
 
 
 def run_checked(command: list[str], cwd: Path, timeout: int) -> str:
@@ -311,6 +306,7 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
                         }
                     },
                     "volumes": {"restore-data": {}},
+                    "networks": {"default": {"internal": True}},
                 }
             ),
             encoding="utf-8",
@@ -467,6 +463,7 @@ def rehearse_upgrade(root: Path, target: str) -> tuple[str, str, str]:
                         },
                     },
                     "volumes": {"rehearsal-db": {}, "rehearsal-upload": {}},
+                    "networks": {"default": {"internal": True}},
                 }
             ),
             encoding="utf-8",

@@ -1,4 +1,5 @@
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -83,7 +84,7 @@ class DockerUpgradeTest(unittest.TestCase):
             ("v3.0.2", "v3.0.3", V3_REDIS_IMAGE),
         ):
             with self.subTest(source=source, target=target), tempfile.TemporaryDirectory(prefix="lifeguard real upgrade ") as temporary:
-                root = Path(temporary) / "source installation"
+                root = Path(temporary) / f"lifeguard-source-{secrets.token_hex(4)}"
                 compose_command = create_source_install(root, source, redis_image)
                 try:
                     subprocess.run([*compose_command, "up", "-d", "--wait"], check=True, timeout=900)
