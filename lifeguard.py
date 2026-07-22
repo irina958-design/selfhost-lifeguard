@@ -125,7 +125,12 @@ def create_database_backup(root: Path) -> Path:
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     final_path = backup_path / f"immich-db-{stamp}-{secrets.token_hex(4)}.sql.gz"
-    with tempfile.TemporaryDirectory(dir=backup_path, prefix=".lifeguard-") as temporary:
+    try:
+        staging = tempfile.TemporaryDirectory(dir=backup_path, prefix=".lifeguard-")
+    except OSError as error:
+        raise BackupError("The backup could not be staged safely in the verified backup directory.") from error
+
+    with staging as temporary:
         temporary_path = Path(temporary) / "backup.tmp"
         with tempfile.TemporaryFile() as stderr:
             try:
@@ -142,6 +147,10 @@ def create_database_backup(root: Path) -> Path:
                     while chunk := process.stdout.read(1024 * 1024):
                         compressed.write(chunk)
                         written += len(chunk)
+            except OSError as error:
+                process.kill()
+                process.wait()
+                raise BackupError("The backup could not be staged safely in the verified backup directory.") from error
             except Exception:
                 process.kill()
                 process.wait()

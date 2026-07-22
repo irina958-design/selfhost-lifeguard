@@ -42,3 +42,13 @@ jobs:
         with:
           python-version: "3.13"
       - run: LIFEGUARD_UPGRADE_TEST=1 python -m unittest discover -s tests -p "test_upgrade_docker.py" -v
+
+  engineering-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: LIFEGUARD_ENGINEERING_TEST=1 python -m unittest discover -s tests -p "test_engineering_docker.py" -v

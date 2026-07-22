@@ -1,3 +1,4 @@
+import errno
 import gzip
 import io
 import json
@@ -135,6 +136,17 @@ class LifeguardTest(unittest.TestCase):
 
             with patch("lifeguard.subprocess.Popen", side_effect=failed_popen):
                 with self.assertRaises(BackupError):
+                    create_database_backup(root)
+
+            with patch("lifeguard.tempfile.TemporaryDirectory", side_effect=PermissionError("denied")):
+                with self.assertRaisesRegex(BackupError, "could not be staged safely"):
+                    create_database_backup(root)
+
+            process = SimpleNamespace(stdout=io.BytesIO(b"CREATE TABLE example ();\n"), kill=lambda: None, wait=lambda: 0)
+            with patch("lifeguard.subprocess.Popen", return_value=process), patch(
+                "lifeguard.gzip.open", side_effect=OSError(errno.ENOSPC, "No space left on device")
+            ):
+                with self.assertRaisesRegex(BackupError, "could not be staged safely"):
                     create_database_backup(root)
 
             self.assertFalse(list(backup_directory.iterdir()))
