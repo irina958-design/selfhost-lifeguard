@@ -42,6 +42,15 @@ def host_path(root: Path, value: str) -> Path | None:
     return None  # A bare value is usually a named Docker volume.
 
 
+def custom_backup_is_mounted(compose_text: str) -> bool:
+    return any(
+        not line.lstrip().startswith("#")
+        and "${BACKUP_LOCATION}" in line
+        and re.search(r":\s*/data/backups(?:[:\s'\"]|$)", line)
+        for line in compose_text.splitlines()
+    )
+
+
 def inspect(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
@@ -86,12 +95,26 @@ def inspect(root: Path) -> list[Finding]:
 
     upload = env.get("UPLOAD_LOCATION")
     upload_path = host_path(root, upload) if upload else None
-    backups = list((upload_path / "backups").glob("*.sql*")) if upload_path and (upload_path / "backups").is_dir() else []
+    backup_path = upload_path / "backups" if upload_path else None
+    custom_backup = env.get("BACKUP_LOCATION")
+    if custom_backup:
+        compose_text = compose.read_text(encoding="utf-8") if compose else ""
+        if custom_backup_is_mounted(compose_text):
+            backup_path = host_path(root, custom_backup)
+            if backup_path is None:
+                findings.append(Finding("INFO", "backup.unverified", "BACKUP_LOCATION looks like a named Docker volume; backup check skipped."))
+        else:
+            backup_path = None
+            findings.append(Finding("INFO", "backup.unverified", "BACKUP_LOCATION is set, but its /data/backups Compose mount could not be verified."))
+
+    backups = list(backup_path.glob("*.sql*")) if backup_path and backup_path.is_dir() else []
     if backups:
         newest = max(backups, key=lambda path: path.stat().st_mtime)
         findings.append(Finding("PASS", "backup.found", f"Database backup found: {newest.name}"))
-    elif upload_path and upload_path.exists():
-        findings.append(Finding("WARN", "backup.missing", "No database backup found in UPLOAD_LOCATION/backups."))
+    elif backup_path and backup_path.is_dir():
+        findings.append(Finding("WARN", "backup.missing", f"No database backup found in {backup_path.resolve()}."))
+    elif backup_path:
+        findings.append(Finding("WARN", "backup.missing", f"Backup directory does not exist: {backup_path.resolve()}"))
 
     return findings
 
@@ -114,4 +137,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

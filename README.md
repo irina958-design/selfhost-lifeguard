@@ -10,7 +10,7 @@ The first check reads an Immich directory and reports:
 - missing or unsafe core settings;
 - whether storage paths exist;
 - available disk space;
-- whether a database backup is visible in `UPLOAD_LOCATION/backups`.
+- whether a database backup is visible in `UPLOAD_LOCATION/backups` or a verified `BACKUP_LOCATION` mount.
 
 It does not run Docker, create backups, update containers, or change files.
 
@@ -24,7 +24,6 @@ With Immich's documented defaults, Lifeguard intentionally warns about the movin
 
 ## Next
 
-1. Validate the check against official and real-world Immich configurations.
-2. Add a safe database-backup command.
-3. Restore into an isolated disposable environment.
-4. Add upgrade and automatic rollback only after three successful pilot restores.
+1. Add a safe database-backup command.
+2. Restore into an isolated disposable environment.
+3. Add upgrade and automatic rollback only after three successful pilot restores.

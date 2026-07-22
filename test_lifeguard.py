@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lifeguard import inspect, read_env
+from lifeguard import custom_backup_is_mounted, inspect, read_env
 
 
 class LifeguardTest(unittest.TestCase):
@@ -42,6 +42,45 @@ class LifeguardTest(unittest.TestCase):
             codes = {item.code for item in findings}
             self.assertFalse([item for item in findings if item.level == "FAIL"])
             self.assertTrue({"version.unpinned", "db.default-password", "backup.missing"} <= codes)
+
+    def test_custom_backup_location(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text(
+                "services:\n  immich-server:\n    volumes:\n      - ${BACKUP_LOCATION}:/data/backups\n",
+                encoding="utf-8",
+            )
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nBACKUP_LOCATION=./database-backups\nIMMICH_VERSION=v3.0.0\nDB_PASSWORD=changed123\n",
+                encoding="utf-8",
+            )
+            (root / "library").mkdir()
+            (root / "postgres").mkdir()
+            (root / "database-backups").mkdir()
+            (root / "database-backups" / "dump.sql.gz").touch()
+
+            findings = inspect(root)
+            self.assertIn("backup.found", {item.code for item in findings})
+            self.assertNotIn("backup.missing", {item.code for item in findings})
+
+    def test_unmounted_custom_backup_is_unverified(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nBACKUP_LOCATION=./database-backups\nIMMICH_VERSION=v3.0.0\nDB_PASSWORD=changed123\n",
+                encoding="utf-8",
+            )
+            (root / "library").mkdir()
+            (root / "postgres").mkdir()
+
+            codes = {item.code for item in inspect(root)}
+            self.assertIn("backup.unverified", codes)
+            self.assertNotIn("backup.missing", codes)
+
+    def test_custom_backup_mount_detection_is_line_scoped(self):
+        self.assertTrue(custom_backup_is_mounted("- ${BACKUP_LOCATION}:/data/backups\n"))
+        self.assertFalse(custom_backup_is_mounted("# ${BACKUP_LOCATION}:/data/backups\n"))
 
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:
