@@ -103,9 +103,11 @@ With Immich's documented defaults, Lifeguard intentionally warns about the movin
 
 ## GitHub Action
 
-Run these checks on a schedule from CI. Preflight and backup are free; isolated
-restore verification and upgrade rehearsal are Pro. See [`ACTION.md`](ACTION.md)
-for workflow examples and licensing setup.
+Run these checks on a schedule from CI. There, preflight and backup are free;
+isolated restore verification and upgrade rehearsal are Pro, and pilot operators
+get a key for free. The command-line script above is free in full — it has no
+license check. See [`ACTION.md`](ACTION.md) for workflow examples and licensing
+setup.
 
 ## Development
 
