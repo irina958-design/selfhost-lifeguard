@@ -111,8 +111,5 @@ Seller setup, one time:
 The gate calls the public endpoint
 `https://api.lemonsqueezy.com/v1/licenses/validate` with the key and reads
 `valid`. Override it for testing with the `LIFEGUARD_LICENSE_URL` environment
-variable. No API token is required for validation.
-
-> Validation is online (the runner needs network at run time). For air-gapped
-> runners, the upgrade path is an offline Ed25519-signed key verified against a
-> bundled public key — see the `ponytail:` note in [`gate.py`](gate.py).
+variable. No API token is required for validation. The runner needs network
+access at run time.

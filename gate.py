@@ -29,12 +29,7 @@ VALIDATE_URL = os.environ.get(
 
 
 def license_valid(key: str) -> bool:
-    """Return True only if the merchant confirms the key is active. Fails closed.
-
-    ponytail: online validation, needs network at run time. Upgrade path when
-    offline runners matter: ship an Ed25519-signed key and verify it against a
-    bundled public key instead of calling the merchant.
-    """
+    """Return True only if the merchant confirms the key is active. Fails closed."""
     if not key:
         return False
     body = urllib.parse.urlencode({"license_key": key}).encode()
