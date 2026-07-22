@@ -219,7 +219,7 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
                                 "POSTGRES_DB": database,
                             },
                             "healthcheck": {
-                                "test": ["CMD", "pg_isready", "--username", user, "--dbname", database],
+                                "test": ["CMD", "psql", "--username", user, "--dbname", database, "-c", "SELECT 1"],
                                 "interval": "1s",
                                 "timeout": "5s",
                                 "retries": 60,
@@ -275,11 +275,27 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
                     detail = stderr.read(1000).decode("utf-8", errors="replace").strip()
                     raise RestoreError(detail or f"Restore failed with exit code {exit_code}.")
 
-            run_checked(
-                [*compose_command, "exec", "-T", "database", "psql", f"--dbname={database}", f"--username={user}", "-Atc", "SELECT 1"],
+            table_count = run_checked(
+                [
+                    *compose_command,
+                    "exec",
+                    "-T",
+                    "database",
+                    "psql",
+                    f"--dbname={database}",
+                    f"--username={user}",
+                    "-Atc",
+                    "SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public'",
+                ],
                 temporary_path,
                 60,
             )
+            try:
+                restored_tables = int(table_count.strip())
+            except ValueError as error:
+                raise RestoreError("The restored database returned an invalid table count.") from error
+            if restored_tables < 1:
+                raise RestoreError("The restored database contains no user tables.")
         except Exception as error:
             restore_error = error
         finally:
