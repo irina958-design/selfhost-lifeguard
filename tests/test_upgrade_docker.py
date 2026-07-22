@@ -9,7 +9,7 @@ from pathlib import Path
 from lifeguard import create_database_backup
 
 
-SCRIPT = Path(__file__).with_name("lifeguard.py").resolve()
+SCRIPT = Path(__file__).resolve().parents[1] / "lifeguard.py"
 DATABASE_IMAGE = "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
 V2_REDIS_IMAGE = "docker.io/valkey/valkey:9@sha256:3b55fbaa0cd93cf0d9d961f405e4dfcc70efe325e2d84da207a0a8e6d8fde4f9"
 V3_REDIS_IMAGE = "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9"
