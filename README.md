@@ -8,6 +8,8 @@ Safety checks, database backups, isolated restore verification, and upgrade rehe
 
 Version `0.3.1` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, temporary output is staged privately, disposable services use internal networks, and real Immich v2 and v3 patch rehearsals pass migrations and schema validation. Production upgrade remains gated on real-installation pilots.
 
+The internal engineering gate additionally exercises a multi-chunk database backup and restore, interrupts a live `pg_dump`, rejects a non-writable backup directory without a traceback, and injects an out-of-space staging error. These maintainer-controlled checks can advance implementation work but do not count as independent user pilots.
+
 Track the pilot gate in [issue #5](https://github.com/irina958-design/selfhost-lifeguard/issues/5).
 
 ## Requirements
@@ -123,11 +125,20 @@ LIFEGUARD_UPGRADE_TEST=1 python -m unittest discover -s tests -p "test_upgrade_d
 
 This runs real v2.7.4 → v2.7.5 and v3.0.2 → v3.0.3 rehearsals with the official database and Redis images, validates migrations and schema drift, and checks cleanup.
 
+Run the resource-intensive engineering acceptance on a POSIX Docker host:
+
+```console
+LIFEGUARD_ENGINEERING_TEST=1 python -m unittest discover -s tests -p "test_engineering_docker.py" -v
+```
+
+It creates and restores a database containing 64 MiB of generated payload, interrupts a second live backup after streaming begins, checks that no partial backup or disposable restore resource remains, and verifies safe handling of a non-writable backup directory. The fast unit suite separately injects an out-of-space write error.
+
 ## Roadmap
 
-1. Run restore and upgrade rehearsal against three real Immich installations.
-2. Add an explicit production-upgrade gate only after those pilots succeed.
-3. Keep recovery based on a verified backup, never an unsupported downgrade.
+1. Keep the internal engineering gate green while implementation continues.
+2. Run restore and upgrade rehearsal against three independent real Immich installations.
+3. Keep production upgrade unavailable in releases until both external pilot gates reach 3/3.
+4. Keep recovery based on a verified backup, never an unsupported downgrade.
 
 ## License
 
