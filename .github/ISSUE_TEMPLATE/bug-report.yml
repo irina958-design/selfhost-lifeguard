@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a reproducible, non-sensitive Lifeguard problem
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, `.env` contents, database dumps, private hostnames, media paths, or personal data. Use the private security-report link in the issue chooser for sensitive reports.
+
+  - type: input
+    id: version
+    attributes:
+      label: Lifeguard version
+      placeholder: v0.3.1
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: Ubuntu 24.04, x86_64
+    validations:
+      required: true
+
+  - type: input
+    id: docker
+    attributes:
+      label: Docker and Compose versions
+      placeholder: Docker 29.0.0, Compose 5.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Immich installation shape
+      options:
+        - Official Docker Compose
+        - Modified or custom Compose
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the Lifeguard command with private paths replaced by placeholders.
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Redacted command output
+      render: shell
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed secrets, personal data, and private paths from this report.
+          required: true
+        - label: This report is not security-sensitive.
+          required: true
