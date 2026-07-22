@@ -6,7 +6,7 @@ Safety checks, database backups, isolated restore verification, and upgrade rehe
 
 ## Pilot status
 
-Version `0.3.4` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, temporary output is staged privately, disposable services use internal networks, and real Immich v2 and v3 patch rehearsals pass migrations and schema validation. Production upgrade remains gated on real-installation pilots.
+Version `0.3.5` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, temporary output is staged privately, disposable services use internal networks, and real Immich v2 and v3 patch rehearsals pass migrations and schema validation. Production upgrade remains gated on real-installation pilots.
 
 The internal engineering gate additionally exercises a multi-chunk database backup and restore, interrupts a live `pg_dump`, rejects a non-writable backup directory without a traceback, and injects an out-of-space staging error. These maintainer-controlled checks can advance implementation work but do not count as independent user pilots.
 
@@ -26,11 +26,11 @@ No Python packages are required.
 Download the standalone script and confirm its version:
 
 ```console
-curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.3.4/lifeguard.py
+curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.3.5/lifeguard.py
 python lifeguard.py --version
 ```
 
-The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.3.4) publishes the file's SHA-256 checksum. No installation step is required.
+The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.3.5) publishes the file's SHA-256 checksum. No installation step is required.
 
 ## Preflight
 

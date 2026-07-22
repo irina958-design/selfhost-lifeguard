@@ -39,7 +39,7 @@ jobs:
   backup:
     runs-on: [self-hosted, immich]
     steps:
-      - uses: irina958-design/selfhost-lifeguard@v0.3.4
+      - uses: irina958-design/selfhost-lifeguard@v0.3.5
         with:
           directory: /srv/immich-app
           command: backup
@@ -59,7 +59,7 @@ jobs:
     runs-on: [self-hosted, immich]
     steps:
       - name: Create backup
-        uses: irina958-design/selfhost-lifeguard@v0.3.4
+        uses: irina958-design/selfhost-lifeguard@v0.3.5
         with:
           directory: /srv/immich-app
           command: backup
@@ -70,7 +70,7 @@ jobs:
         run: echo "path=$(ls -t /srv/immich-app/backups/*.sql.gz | head -1)" >> "$GITHUB_OUTPUT"
 
       - name: Verify restore (Pro)
-        uses: irina958-design/selfhost-lifeguard@v0.3.4
+        uses: irina958-design/selfhost-lifeguard@v0.3.5
         with:
           directory: /srv/immich-app
           command: verify-restore
@@ -82,7 +82,7 @@ jobs:
 
 ```yaml
       - name: Rehearse upgrade (Pro)
-        uses: irina958-design/selfhost-lifeguard@v0.3.4
+        uses: irina958-design/selfhost-lifeguard@v0.3.5
         with:
           directory: /srv/immich-app
           command: rehearse-upgrade
@@ -108,17 +108,32 @@ the command-line pilot itself, which is free either way.
 
 ## How licensing works (Lemon Squeezy)
 
-Pro commands validate the key online, then run. Nothing about your installation
-leaves the runner — only the key string is sent for a valid/invalid answer.
+A key is tied to installations, not to runs. The first Pro command activates
+this installation and stores the resulting instance id in
+`~/.lifeguard/instances.json`; every later run validates that same activation.
+When the key's activation limit is reached, further installations fail closed
+with the merchant's message.
+
+Two values leave the runner: the key, and an opaque installation name of the
+form `lifeguard-<12 hex>` — the SHA-256 of the repository slug on a GitHub
+runner, or of the hostname otherwise. Nothing else about the installation is
+transmitted, and the name cannot be reversed into a hostname or path.
+
+Point `LIFEGUARD_STATE` at another file if the runner's home directory is not
+writable or not persistent; without a stored instance id each run activates
+again and consumes the key's activation limit.
 
 Seller setup, one time:
 
 1. In Lemon Squeezy, create a **Product** and a **Variant** for Lifeguard Pro.
-2. Enable **License keys** on the variant (Settings → License keys → *Generate license keys*).
+2. Enable **License keys** on the variant (Settings → License keys → *Generate license keys*)
+   and set the activation limit to the number of installations one key may cover.
 3. Publish. Buyers receive a key by email at checkout — no extra integration.
 
-The gate calls the public endpoint
-`https://api.lemonsqueezy.com/v1/licenses/validate` with the key and reads
-`valid`. Override it for testing with the `LIFEGUARD_LICENSE_URL` environment
-variable. No API token is required for validation. The runner needs network
-access at run time.
+The gate calls the public `activate` and `validate` endpoints under
+`https://api.lemonsqueezy.com/v1/licenses`. Override that base with the
+`LIFEGUARD_LICENSE_URL` environment variable for testing. No API token is
+required. The runner needs network access at run time.
+
+Key administration, including how pilot and paid keys are told apart, is in
+[`LICENSING.md`](LICENSING.md).

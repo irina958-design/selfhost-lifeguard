@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -35,6 +36,45 @@ class GateTest(unittest.TestCase):
              mock.patch.object(sys, "argv", ["gate.py", "--directory", "/app", "--command", "verify-restore"]):
             self.assertEqual(gate.main(), 2)
             call.assert_not_called()
+
+
+class LicenseInstanceTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patch = mock.patch.object(gate, "STATE_FILE", Path(self.temp.name) / "instances.json")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_first_run_activates_and_later_runs_validate(self):
+        calls = []
+
+        def fake_post(endpoint, fields):
+            calls.append((endpoint, fields))
+            if endpoint == "activate":
+                return {"activated": True, "instance": {"id": "inst-1"}}
+            return {"valid": True}
+
+        with mock.patch.object(gate, "_post", side_effect=fake_post):
+            self.assertTrue(gate.license_valid("KEY"))
+            self.assertTrue(gate.license_valid("KEY"))
+
+        self.assertEqual([endpoint for endpoint, _ in calls], ["activate", "validate"])
+        self.assertEqual(calls[1][1]["instance_id"], "inst-1")
+
+    def test_activation_limit_reached_fails_closed(self):
+        with mock.patch.object(gate, "_post", return_value={"activated": False, "error": "limit reached"}):
+            self.assertFalse(gate.license_valid("KEY"))
+
+    def test_network_failure_fails_closed(self):
+        with mock.patch.object(gate, "_post", return_value={}):
+            self.assertFalse(gate.license_valid("KEY"))
+
+    def test_install_id_is_opaque_and_stable(self):
+        with mock.patch.dict(gate.os.environ, {"GITHUB_REPOSITORY": "owner/repo"}):
+            first = gate.install_id()
+            self.assertEqual(first, gate.install_id())
+        self.assertRegex(first, r"^lifeguard-[0-9a-f]{12}$")
 
 
 if __name__ == "__main__":
