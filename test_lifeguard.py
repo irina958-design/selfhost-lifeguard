@@ -1,8 +1,12 @@
+import gzip
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from lifeguard import custom_backup_is_mounted, inspect, read_env
+from lifeguard import BackupError, build_backup_command, create_database_backup, custom_backup_is_mounted, inspect, read_env
 
 
 class LifeguardTest(unittest.TestCase):
@@ -81,6 +85,49 @@ class LifeguardTest(unittest.TestCase):
     def test_custom_backup_mount_detection_is_line_scoped(self):
         self.assertTrue(custom_backup_is_mounted("- ${BACKUP_LOCATION}:/data/backups\n"))
         self.assertFalse(custom_backup_is_mounted("# ${BACKUP_LOCATION}:/data/backups\n"))
+
+    def test_backup_command_and_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nDB_USERNAME=lifeguard_user\nDB_DATABASE_NAME=lifeguard_db\nIMMICH_VERSION=v3.0.0\nDB_PASSWORD=not-on-command-line\n",
+                encoding="utf-8",
+            )
+            (root / "library" / "backups").mkdir(parents=True)
+
+            def fake_popen(command, stdout, stderr):
+                self.assertEqual(build_backup_command(read_env(root / ".env")), command)
+                self.assertNotIn("not-on-command-line", " ".join(command))
+                return SimpleNamespace(stdout=io.BytesIO(b"CREATE TABLE example ();\n"), wait=lambda: 0)
+
+            with patch("lifeguard.subprocess.Popen", side_effect=fake_popen):
+                backup = create_database_backup(root)
+
+            self.assertTrue(backup.exists())
+            with gzip.open(backup, "rb") as saved:
+                self.assertEqual(b"CREATE TABLE example ();\n", saved.read())
+
+    def test_failed_backup_leaves_no_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "UPLOAD_LOCATION=./library\nDB_DATA_LOCATION=./postgres\nIMMICH_VERSION=v3.0.0\nDB_PASSWORD=changed123\n",
+                encoding="utf-8",
+            )
+            backup_directory = root / "library" / "backups"
+            backup_directory.mkdir(parents=True)
+
+            def failed_popen(command, stdout, stderr):
+                stderr.write(b"database connection failed")
+                return SimpleNamespace(stdout=io.BytesIO(), wait=lambda: 1)
+
+            with patch("lifeguard.subprocess.Popen", side_effect=failed_popen):
+                with self.assertRaises(BackupError):
+                    create_database_backup(root)
+
+            self.assertFalse(list(backup_directory.iterdir()))
 
     def test_env_parser_keeps_equals_in_value(self):
         with tempfile.TemporaryDirectory() as temporary:
