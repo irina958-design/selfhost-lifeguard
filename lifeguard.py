@@ -52,6 +52,11 @@ def read_env(path: Path) -> dict[str, str]:
     return values
 
 
+def exact_version(value: str) -> tuple[int, int, int] | None:
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", value)
+    return tuple(map(int, match.groups())) if match else None
+
+
 def host_path(root: Path, value: str) -> Path | None:
     expanded = Path(value).expanduser()
     if expanded.is_absolute() or value.startswith((".", "~")) or ":" in value:
@@ -324,6 +329,39 @@ def verify_database_restore(root: Path, backup: Path) -> tuple[str, str]:
     return project, image
 
 
+def plan_upgrade(root: Path, target: str) -> list[Finding]:
+    env_file = root / ".env"
+    if not env_file.is_file():
+        return []  # inspect() already reports the missing file.
+
+    env = read_env(env_file)
+    current = env.get("IMMICH_VERSION", "")
+    current_version = exact_version(current)
+    target_version = exact_version(target)
+    if current_version is None:
+        return [Finding("FAIL", "upgrade.current", "IMMICH_VERSION must be pinned to an exact release before planning an upgrade.")]
+    if target_version is None:
+        return [Finding("FAIL", "upgrade.target", f"Target version {target!r} is not an exact X.Y.Z version.")]
+    if target_version <= current_version:
+        return [Finding("FAIL", "upgrade.direction", f"Target {target} must be newer than current version {current}.")]
+    if target_version[0] != current_version[0]:
+        return [Finding("FAIL", "upgrade.major", "Major-version upgrades require manual review of Immich's breaking changes.")]
+
+    compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
+    backup_path, _ = resolve_backup_path(root, compose, env)
+    backups = list(backup_path.glob("*.sql*")) if backup_path and backup_path.is_dir() else []
+    if not backups:
+        return [Finding("FAIL", "upgrade.backup", "A database backup in the verified backup directory is required before planning an upgrade.")]
+    newest = max(backups, key=lambda path: path.stat().st_mtime)
+
+    return [
+        Finding("PASS", "upgrade.target", f"Same-major upgrade direction validated: {current} -> {target}."),
+        Finding("PASS", "upgrade.backup", f"Upgrade backup candidate: {newest.name}."),
+        Finding("INFO", "upgrade.read-only", "Plan only: no images were pulled and no files or containers were changed."),
+        Finding("INFO", "upgrade.rollback", "Immich does not support downgrades; verify a database backup before following the official upgrade instructions."),
+    ]
+
+
 def inspect(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     compose = next((root / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (root / name).is_file()), None)
@@ -344,7 +382,7 @@ def inspect(root: Path) -> list[Finding]:
             findings.append(Finding("FAIL", f"env.{key.lower()}", f"{key} is missing or empty."))
 
     version = env.get("IMMICH_VERSION", "")
-    if version and not re.fullmatch(r"v?\d+\.\d+\.\d+", version):
+    if version and exact_version(version) is None:
         findings.append(Finding("WARN", "version.unpinned", f"IMMICH_VERSION={version!r} is not pinned to an exact release."))
     elif version:
         findings.append(Finding("PASS", "version.pinned", f"Immich version is pinned to {version}."))
@@ -389,12 +427,16 @@ def main() -> int:
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--backup", action="store_true", help="Create a new compressed PostgreSQL backup after preflight checks")
     actions.add_argument("--verify-restore", type=Path, metavar="BACKUP", help="Restore a backup into an isolated disposable database")
+    actions.add_argument("--plan-upgrade", metavar="VERSION", help="Validate a same-major upgrade plan without changing the installation")
     args = parser.parse_args()
 
     root = args.directory.resolve()
     findings = inspect(root)
     if args.backup:
         findings = [item for item in findings if item.code != "backup.missing"]
+    if args.plan_upgrade:
+        findings = [item for item in findings if item.code != "backup.missing"]
+        findings.extend(plan_upgrade(root, args.plan_upgrade))
     for finding in findings:
         print(f"{finding.level:4}  {finding.message}")
 

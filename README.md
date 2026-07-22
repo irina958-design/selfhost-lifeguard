@@ -68,11 +68,22 @@ python lifeguard.py /path/to/immich-app --verify-restore /path/to/backup.sql.gz
 
 Lifeguard reads the database image from the installation's normalized Compose configuration, creates a randomly named Compose project and volume, restores the SQL in one transaction, checks PostgreSQL, and removes only those disposable resources.
 
+## Plan an upgrade
+
+Validate the local prerequisites for a same-major upgrade without pulling images or changing files or containers:
+
+```console
+python lifeguard.py /path/to/immich-app --plan-upgrade v3.0.3
+```
+
+The current and target versions must use exact `X.Y.Z` syntax, the target must be newer in the same major series, and a database backup must exist in the verified backup directory. Major-version changes remain a manual review because Immich requires reading their breaking-change notes. [Immich does not support downgrades](https://docs.immich.app/install/upgrading/), so recovery must use a verified backup rather than an automatic version rollback.
+
 ## Safety boundary
 
 - No production container, volume, or database is modified during restore verification.
 - Cleanup is scoped to a randomly generated Compose project.
-- Automatic upgrades and production rollback are intentionally unavailable during the pilot.
+- Production upgrades remain unavailable until isolated rehearsal is implemented and validated.
+- Version downgrade is intentionally unavailable because Immich does not support it.
 - Back up the media library separately; this version verifies PostgreSQL backups, not a full media restore.
 
 With Immich's documented defaults, Lifeguard intentionally warns about the moving `v3` image tag, the example database password, and the absence of a visible database backup. These warnings do not modify or stop the installation.
@@ -96,7 +107,8 @@ It covers an invalid dump, a custom backup path with spaces, and two parallel in
 ## Roadmap
 
 1. Run restore verification against three real Immich installations.
-2. Add upgrade and automatic rollback only after three successful pilot restores.
+2. Rehearse same-major upgrades against an isolated restored database.
+3. Add production upgrade only after successful rehearsal and real-installation pilots; recovery uses a verified backup, never an unsupported downgrade.
 
 ## License
 
