@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/irina958-design/selfhost-lifeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/irina958-design/selfhost-lifeguard/actions/workflows/ci.yml)
 
-Safety checks, database backups, and isolated restore verification for an official Docker Compose installation of [Immich](https://docs.immich.app/install/docker-compose/).
+Safety checks, database backups, isolated restore verification, and upgrade rehearsal for an official Docker Compose installation of [Immich](https://docs.immich.app/install/docker-compose/).
 
 ## Pilot status
 
-Version `0.2.0` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, three simulated user scenarios plus the official Immich v3.0.3 database Compose configuration pass backup and isolated restore checks, and upgrade prerequisites can be planned read-only. Production upgrade remains gated on isolated rehearsal and real-installation pilots.
+Version `0.3.0` is ready for controlled pilots. Backups are scoped to the selected installation's Compose project, three simulated user scenarios pass backup and isolated restore checks, and a real Immich v3.0.2 database passes an isolated v3.0.3 rehearsal with migrations and schema validation. Production upgrade remains gated on real-installation pilots.
 
 Track the pilot gate in [issue #5](https://github.com/irina958-design/selfhost-lifeguard/issues/5).
 
@@ -24,11 +24,11 @@ No Python packages are required.
 Download the standalone script and confirm its version:
 
 ```console
-curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.2.0/lifeguard.py
+curl -fLO https://github.com/irina958-design/selfhost-lifeguard/releases/download/v0.3.0/lifeguard.py
 python lifeguard.py --version
 ```
 
-The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.2.0) publishes the file's SHA-256 checksum. No installation step is required.
+The [release page](https://github.com/irina958-design/selfhost-lifeguard/releases/tag/v0.3.0) publishes the file's SHA-256 checksum. No installation step is required.
 
 ## Preflight
 
@@ -78,11 +78,22 @@ python lifeguard.py /path/to/immich-app --plan-upgrade v3.0.3
 
 The current and target versions must use exact `X.Y.Z` syntax, the target must be newer in the same major series, and a database backup must exist in the verified backup directory. Major-version changes remain a manual review because Immich requires reading their breaking-change notes. [Immich does not support downgrades](https://docs.immich.app/install/upgrading/), so recovery must use a verified backup rather than an automatic version rollback.
 
+## Rehearse an upgrade
+
+Start the target Immich release against the newest database backup without changing the production installation:
+
+```console
+python lifeguard.py /path/to/immich-app --rehearse-upgrade v3.0.3
+```
+
+Lifeguard reads the database and Redis images from the normalized installation Compose file, restores the backup into a random disposable project, starts the exact target `immich-server` image, waits for its official healthcheck, confirms the reported version, and runs `immich-admin schema-check`. It creates empty storage markers in a disposable media volume so Immich can validate its mounts without receiving the user's media files. All rehearsal containers, networks, and volumes are removed afterward, including on failure.
+
 ## Safety boundary
 
-- No production container, volume, or database is modified during restore verification.
+- No production container, volume, database, media directory, or secret is given to restore verification or upgrade rehearsal.
 - Cleanup is scoped to a randomly generated Compose project.
-- Production upgrades remain unavailable until isolated rehearsal is implemented and validated.
+- Upgrade rehearsal pulls the target image and creates disposable Docker resources; it never changes `IMMICH_VERSION` or performs the production upgrade.
+- Production upgrades remain unavailable until real-installation pilots validate the workflow.
 - Version downgrade is intentionally unavailable because Immich does not support it.
 - Back up the media library separately; this version verifies PostgreSQL backups, not a full media restore.
 
@@ -104,11 +115,19 @@ LIFEGUARD_DOCKER_TEST=1 python -m unittest -v test_restore_docker
 
 It covers an invalid dump, a custom backup path with spaces, and two parallel installations with different data. Every scenario creates a backup, performs an isolated restore, and checks resource cleanup.
 
+Run the real Immich patch-upgrade rehearsal:
+
+```console
+LIFEGUARD_UPGRADE_TEST=1 python -m unittest -v test_upgrade_docker
+```
+
+This starts v3.0.2 with the official database and Redis images, creates a real Immich schema, backs it up, rehearses v3.0.3, validates migrations and schema drift, and checks cleanup.
+
 ## Roadmap
 
-1. Run restore verification against three real Immich installations.
-2. Rehearse same-major upgrades against an isolated restored database.
-3. Add production upgrade only after successful rehearsal and real-installation pilots; recovery uses a verified backup, never an unsupported downgrade.
+1. Run restore and upgrade rehearsal against three real Immich installations.
+2. Add an explicit production-upgrade gate only after those pilots succeed.
+3. Keep recovery based on a verified backup, never an unsupported downgrade.
 
 ## License
 

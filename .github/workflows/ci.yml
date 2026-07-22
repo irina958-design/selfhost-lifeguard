@@ -32,3 +32,13 @@ jobs:
         with:
           python-version: "3.13"
       - run: LIFEGUARD_DOCKER_TEST=1 python -m unittest -v test_restore_docker
+
+  docker-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: LIFEGUARD_UPGRADE_TEST=1 python -m unittest -v test_upgrade_docker
