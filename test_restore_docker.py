@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lifeguard import verify_database_restore
+from lifeguard import RestoreError, verify_database_restore
 
 
 @unittest.skipUnless(os.environ.get("LIFEGUARD_DOCKER_TEST") == "1", "set LIFEGUARD_DOCKER_TEST=1 to run")
@@ -20,19 +20,25 @@ class DockerRestoreTest(unittest.TestCase):
             )
             backup = root / "probe.sql.gz"
             with gzip.open(backup, "wt", encoding="utf-8") as sql:
+                sql.write("SELECT 1;\n")
+
+            with self.assertRaisesRegex(RestoreError, "contains no user tables"):
+                verify_database_restore(root, backup)
+
+            with gzip.open(backup, "wt", encoding="utf-8") as sql:
                 sql.write("CREATE TABLE restore_probe (value integer);\nINSERT INTO restore_probe VALUES (1);\n")
 
             project, image = verify_database_restore(root, backup)
 
             self.assertEqual("postgres:14-alpine", image)
             containers = subprocess.run(
-                ["docker", "ps", "-a", "--filter", f"label=com.docker.compose.project={project}", "--format", "{{.ID}}"],
+                ["docker", "ps", "-a", "--filter", "name=lifeguard-restore-", "--format", "{{.ID}}"],
                 capture_output=True,
                 text=True,
                 check=True,
             )
             volumes = subprocess.run(
-                ["docker", "volume", "ls", "--filter", f"label=com.docker.compose.project={project}", "--format", "{{.Name}}"],
+                ["docker", "volume", "ls", "--filter", "name=lifeguard-restore-", "--format", "{{.Name}}"],
                 capture_output=True,
                 text=True,
                 check=True,
