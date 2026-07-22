@@ -11,6 +11,10 @@ without touching the production installation.
 | `verify-restore` | **Pro** | Restore a backup into an isolated disposable database and check it. |
 | `rehearse-upgrade` | **Pro** | Start the target release against a restored backup in disposable containers. |
 
+The tiers apply to this Action only. `lifeguard.py` run by hand has no license
+check — every command, including restore verification and upgrade rehearsal, is
+free on the command line.
+
 ## Requirements
 
 Because Lifeguard drives the installation's own Compose project, the Action runs
@@ -96,6 +100,11 @@ to the repository:
 
 **Settings → Secrets and variables → Actions → New repository secret**
 Name `LIFEGUARD_LICENSE_KEY`, value the key from your purchase email.
+
+Pilot operators get a Pro key for free: say so in the
+[pilot tracker](https://github.com/irina958-design/selfhost-lifeguard/issues/5)
+and a key is issued at no cost while the pilot is open. Nothing is needed for
+the command-line pilot itself, which is free either way.
 
 ## How licensing works (Lemon Squeezy)
 
