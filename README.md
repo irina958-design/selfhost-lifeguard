@@ -85,11 +85,13 @@ Run the fast tests:
 python -m unittest -v test_lifeguard
 ```
 
-Run the disposable Docker restore test:
+Run the simulated pilot matrix:
 
 ```console
 LIFEGUARD_DOCKER_TEST=1 python -m unittest -v test_restore_docker
 ```
+
+It covers an invalid dump, a custom backup path with spaces, and two parallel installations with different data. Every scenario creates a backup, performs an isolated restore, and checks resource cleanup.
 
 ## Roadmap
 
