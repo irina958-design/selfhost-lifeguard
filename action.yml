@@ -10,7 +10,7 @@ inputs:
     description: "Installation directory containing docker-compose.yml and .env."
     required: true
   command:
-    description: "preflight (default, free) | backup (free) | verify-restore (Pro) | rehearse-upgrade (Pro)."
+    description: "preflight (default) | backup | verify-restore | rehearse-upgrade."
     required: false
     default: "preflight"
   backup:
@@ -19,10 +19,6 @@ inputs:
     default: ""
   version:
     description: "Target version X.Y.Z. Required for rehearse-upgrade."
-    required: false
-    default: ""
-  license-key:
-    description: "Pro license key. Required for verify-restore and rehearse-upgrade."
     required: false
     default: ""
 
@@ -35,10 +31,8 @@ runs:
   steps:
     - name: Run Lifeguard
       shell: bash
-      env:
-        LIFEGUARD_LICENSE_KEY: ${{ inputs.license-key }}
       run: >
-        python3 "${{ github.action_path }}/gate.py"
+        python3 "${{ github.action_path }}/run.py"
         --directory "${{ inputs.directory }}"
         --command "${{ inputs.command }}"
         --backup "${{ inputs.backup }}"
